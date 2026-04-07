@@ -31,6 +31,21 @@ CHECK_INTERVAL_SECONDS = 120  # 2 minutes
 # État global
 was_available = False
 is_monitoring = True
+status_since = datetime.now()
+
+def get_duration_str():
+    if not status_since:
+        return "quelques instants"
+    diff = datetime.now() - status_since
+    minutes = int(diff.total_seconds() / 60)
+    if minutes < 1:
+        return "moins d'une minute"
+    elif minutes < 60:
+        return f"{minutes} minute(s)"
+    else:
+        hours = minutes // 60
+        r_mins = minutes % 60
+        return f"{hours}h{str(r_mins).zfill(2)}"
 
 # ==========================================
 # MINI-SERVEUR WEB POUR RENDER ET CRON-JOB
@@ -79,7 +94,7 @@ async def scrape_availability():
 
 async def check_job(context_obj: ContextTypes.DEFAULT_TYPE):
     """Boucle exécutée par la JobQueue de Telegram."""
-    global was_available, is_monitoring
+    global was_available, is_monitoring, status_since
     
     if not is_monitoring:
         return
@@ -94,14 +109,18 @@ async def check_job(context_obj: ContextTypes.DEFAULT_TYPE):
     if is_available:
         print(f"[{now}] - {Fore.GREEN}Statut : Disponible{Style.RESET_ALL}")
         if not was_available:
+            duration = get_duration_str()
             print(f"{Fore.MAGENTA}   [!] CHANGEMENT DE STATUT : Envoi de l'alerte telegram...{Style.RESET_ALL}")
-            message = f"✅ <b>Borne Blink (Genappe) DISPONIBLE !</b>\n\nLien : {TARGET_URL}"
+            message = f"✅ <b>Borne Blink (Genappe) DISPONIBLE !</b>\n(Elle était occupée pendant {duration})\n\nLien : {TARGET_URL}"
             await context_obj.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message, parse_mode="HTML")
             print(f"{Fore.MAGENTA}   [>] 📩 Message expédié avec succès sur Telegram !{Style.RESET_ALL}")
             was_available = True
+            status_since = datetime.now()
     else:
         print(f"[{now}] - {Fore.YELLOW}Statut : Occupé{Style.RESET_ALL}")
-        was_available = False
+        if was_available:
+            was_available = False
+            status_since = datetime.now()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -123,9 +142,11 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_av is None:
         await update.message.reply_text("❌ Impossible de joindre le site Chargefinder.")
     elif is_av:
-        await update.message.reply_text(f"✅ La borne est actuellement <b>DISPONIBLE</b> !\n{TARGET_URL}", parse_mode="HTML")
+        duration = get_duration_str()
+        await update.message.reply_text(f"✅ La borne est actuellement <b>DISPONIBLE</b> (depuis {duration}) !\n{TARGET_URL}", parse_mode="HTML")
     else:
-        await update.message.reply_text("⏳ La borne est toujours occupée.")
+        duration = get_duration_str()
+        await update.message.reply_text(f"⏳ La borne est toujours occupée (depuis {duration}).")
 
 async def pause(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global is_monitoring
